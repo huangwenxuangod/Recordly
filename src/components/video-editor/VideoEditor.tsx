@@ -14,6 +14,7 @@ import {
 	Play,
 	Plus,
 	PuzzlePiece,
+	Record,
 	ArrowClockwise as Redo2,
 	Scissors,
 	SkipBack,
@@ -194,6 +195,7 @@ import {
 	type Padding,
 	mapSourceTimeToTimelineTime as resolveSourceTimeToTimelineTime,
 	mapTimelineTimeToSourceTime as resolveTimelineTimeToSourceTime,
+	rippleDeleteClip,
 	type SpeedRegion,
 	type TrimRegion,
 	trimsToClips,
@@ -2979,6 +2981,14 @@ export default function VideoEditor() {
 		}
 	}, [saveProject]);
 
+	const handleReturnToRecording = useCallback(async () => {
+		try {
+			await window.electronAPI.returnToRecording();
+		} catch (error) {
+			toast.error(getErrorMessage(error));
+		}
+	}, []);
+
 	useEffect(() => {
 		if (!currentProjectPath || !hasUnsavedChanges) {
 			clearPendingProjectAutosave();
@@ -3763,28 +3773,33 @@ export default function VideoEditor() {
 
 	const handleClipDelete = useCallback(
 		(id: string) => {
-			const deletedClip = clipRegions.find((clip) => clip.id === id);
-			setClipRegions((prev) => prev.filter((clip) => clip.id !== id));
-			if (deletedClip) {
-				const { startMs, endMs } = deletedClip;
-				setZoomRegions((prev) =>
-					prev.filter((region) => region.endMs <= startMs || region.startMs >= endMs),
-				);
-				setAnnotationRegions((prev) =>
-					prev.filter((region) => region.endMs <= startMs || region.startMs >= endMs),
-				);
-				setSpeedRegions((prev) =>
-					prev.filter((region) => region.endMs <= startMs || region.startMs >= endMs),
-				);
-				setAudioRegions((prev) =>
-					prev.filter((region) => region.endMs <= startMs || region.startMs >= endMs),
-				);
+			const sortedClips = [...clipRegions].sort((left, right) => left.startMs - right.startMs);
+			const deletedClipIndex = sortedClips.findIndex((clip) => clip.id === id);
+			const rippleResult = rippleDeleteClip({
+				clipId: id,
+				clipRegions,
+				zoomRegions,
+				annotationRegions,
+				speedRegions,
+				audioRegions,
+			});
+			if (!rippleResult) {
+				return;
 			}
-			if (selectedClipId === id) {
-				setSelectedClipId(null);
-			}
+
+			setClipRegions(rippleResult.clipRegions);
+			setZoomRegions(rippleResult.zoomRegions);
+			setAnnotationRegions(rippleResult.annotationRegions);
+			setSpeedRegions(rippleResult.speedRegions);
+			setAudioRegions(rippleResult.audioRegions);
+
+			const nextSelectedClip =
+				rippleResult.clipRegions[deletedClipIndex] ??
+				rippleResult.clipRegions[deletedClipIndex - 1] ??
+				null;
+			setSelectedClipId(nextSelectedClip?.id ?? null);
 		},
-		[clipRegions, selectedClipId],
+		[annotationRegions, audioRegions, clipRegions, speedRegions, zoomRegions],
 	);
 
 	const handleSelectAudio = useCallback((id: string | null) => {
@@ -4053,6 +4068,16 @@ export default function VideoEditor() {
 				e.preventDefault();
 			}
 
+			if (
+				!isEditableTarget &&
+				selectedClipId &&
+				(e.key === "Backspace" || e.key === "Delete")
+			) {
+				e.preventDefault();
+				handleClipDelete(selectedClipId);
+				return;
+			}
+
 			if (matchesShortcut(e, shortcuts.playPause, isMac)) {
 				// Allow space only in inputs/textareas
 				if (isEditableTarget) {
@@ -4073,7 +4098,7 @@ export default function VideoEditor() {
 
 		window.addEventListener("keydown", handleKeyDown, { capture: true });
 		return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-	}, [shortcuts, isMac, handleUndo, handleRedo]);
+	}, [shortcuts, isMac, handleUndo, handleRedo, handleClipDelete, selectedClipId]);
 
 	useEffect(() => {
 		if (selectedZoomId && !zoomRegions.some((region) => region.id === selectedZoomId)) {
@@ -5713,6 +5738,18 @@ export default function VideoEditor() {
 						aria-hidden="true"
 						className="mx-2 h-4 w-px shrink-0 bg-foreground/10 opacity-0"
 					/>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						onClick={handleReturnToRecording}
+						className={APP_HEADER_ICON_BUTTON_CLASS}
+						title={t("editor.project.returnToRecording", "Return to recording")}
+						aria-label={t("editor.project.returnToRecording", "Return to recording")}
+					>
+						<Record className="h-4 w-4" />
+					</Button>
+					<div className="mx-2 h-4 w-px shrink-0 bg-foreground/10" />
 					<DropdownMenu
 						open={showExportDropdown}
 						onOpenChange={setShowExportDropdown}

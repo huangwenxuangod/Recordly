@@ -7,6 +7,7 @@ import {
 	getTimelineDurationMs,
 	mapSourceTimeToTimelineTime,
 	mapTimelineTimeToSourceTime,
+	rippleDeleteClip,
 	trimsToClips,
 } from "./types";
 
@@ -176,5 +177,92 @@ describe("getTimelineDurationMs", () => {
 				10_000,
 			),
 		).toBe(10_000);
+	});
+});
+
+describe("rippleDeleteClip", () => {
+	it("removes the selected clip and shifts following timeline items left", () => {
+		const result = rippleDeleteClip({
+			clipId: "clip-2",
+			clipRegions: [
+				{ id: "clip-1", startMs: 0, endMs: 4_000, speed: 1 },
+				{ id: "clip-2", startMs: 4_000, endMs: 7_000, speed: 1 },
+				{ id: "clip-3", startMs: 7_000, endMs: 10_000, speed: 1 },
+			],
+			zoomRegions: [{ id: "zoom-1", startMs: 7_500, endMs: 8_500, depth: 2, focus: { cx: 0.5, cy: 0.5 } }],
+			annotationRegions: [
+				{
+					id: "annotation-1",
+					startMs: 8_000,
+					endMs: 9_000,
+					type: "text",
+					content: "Note",
+					position: { x: 50, y: 50 },
+					size: { width: 30, height: 20 },
+					style: {
+						color: "#fff",
+						backgroundColor: "transparent",
+						fontSize: 32,
+						fontFamily: "sans-serif",
+						fontWeight: "bold",
+						fontStyle: "normal",
+						textDecoration: "none",
+						textAlign: "center",
+						borderRadius: 8,
+					},
+					zIndex: 1,
+				},
+			],
+			speedRegions: [{ id: "speed-1", startMs: 8_000, endMs: 9_000, speed: 2 }],
+			audioRegions: [
+				{
+					id: "audio-1",
+					startMs: 9_000,
+					endMs: 10_000,
+					audioPath: "track.wav",
+					volume: 1,
+				},
+			],
+		});
+
+		expect(result).not.toBeNull();
+		expect(result?.deletedClipDurationMs).toBe(3_000);
+		expect(result?.clipRegions).toEqual([
+			{ id: "clip-1", startMs: 0, endMs: 4_000, speed: 1 },
+			{ id: "clip-3", startMs: 4_000, endMs: 7_000, speed: 1 },
+		]);
+		expect(result?.zoomRegions).toEqual([
+			{ id: "zoom-1", startMs: 4_500, endMs: 5_500, depth: 2, focus: { cx: 0.5, cy: 0.5 } },
+		]);
+		expect(result?.annotationRegions[0]?.startMs).toBe(5_000);
+		expect(result?.annotationRegions[0]?.endMs).toBe(6_000);
+		expect(result?.speedRegions[0]).toEqual({ id: "speed-1", startMs: 5_000, endMs: 6_000, speed: 2 });
+		expect(result?.audioRegions[0]?.startMs).toBe(6_000);
+		expect(result?.audioRegions[0]?.endMs).toBe(7_000);
+	});
+
+	it("removes overlapping child regions and trims cross-boundary regions", () => {
+		const result = rippleDeleteClip({
+			clipId: "clip-2",
+			clipRegions: [
+				{ id: "clip-1", startMs: 0, endMs: 4_000, speed: 1 },
+				{ id: "clip-2", startMs: 4_000, endMs: 7_000, speed: 1 },
+				{ id: "clip-3", startMs: 7_000, endMs: 9_000, speed: 1 },
+			],
+			zoomRegions: [
+				{ id: "zoom-left", startMs: 3_000, endMs: 5_000, depth: 2, focus: { cx: 0.5, cy: 0.5 } },
+				{ id: "zoom-right", startMs: 6_000, endMs: 8_000, depth: 3, focus: { cx: 0.2, cy: 0.4 } },
+				{ id: "zoom-span", startMs: 3_000, endMs: 8_000, depth: 4, focus: { cx: 0.7, cy: 0.8 } },
+			],
+			annotationRegions: [],
+			speedRegions: [],
+			audioRegions: [],
+		});
+
+		expect(result?.zoomRegions).toEqual([
+			{ id: "zoom-left", startMs: 3_000, endMs: 4_000, depth: 2, focus: { cx: 0.5, cy: 0.5 } },
+			{ id: "zoom-right", startMs: 4_000, endMs: 5_000, depth: 3, focus: { cx: 0.2, cy: 0.4 } },
+			{ id: "zoom-span", startMs: 3_000, endMs: 5_000, depth: 4, focus: { cx: 0.7, cy: 0.8 } },
+		]);
 	});
 });

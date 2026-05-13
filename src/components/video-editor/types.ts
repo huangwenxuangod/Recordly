@@ -474,6 +474,122 @@ export interface AudioRegion {
 	trackIndex?: number;
 }
 
+type TimelineRange = {
+	startMs: number;
+	endMs: number;
+};
+
+export interface RippleDeleteClipResult {
+	clipRegions: ClipRegion[];
+	zoomRegions: ZoomRegion[];
+	annotationRegions: AnnotationRegion[];
+	speedRegions: SpeedRegion[];
+	audioRegions: AudioRegion[];
+	deletedClipDurationMs: number;
+}
+
+function shiftRange<T extends TimelineRange>(region: T, deltaMs: number): T {
+	return {
+		...region,
+		startMs: region.startMs - deltaMs,
+		endMs: region.endMs - deltaMs,
+	};
+}
+
+function rippleDeleteTimelineRegions<T extends TimelineRange>(
+	regions: T[],
+	deleteStartMs: number,
+	deleteEndMs: number,
+): T[] {
+	const deltaMs = deleteEndMs - deleteStartMs;
+	if (deltaMs <= 0) {
+		return regions;
+	}
+
+	return regions.flatMap((region) => {
+		if (region.endMs <= deleteStartMs) {
+			return [region];
+		}
+
+		if (region.startMs >= deleteEndMs) {
+			return [shiftRange(region, deltaMs)];
+		}
+
+		if (region.startMs < deleteStartMs && region.endMs > deleteEndMs) {
+			return [
+				{
+					...region,
+					endMs: region.endMs - deltaMs,
+				},
+			];
+		}
+
+		if (region.startMs < deleteStartMs && region.endMs > deleteStartMs) {
+			return [
+				{
+					...region,
+					endMs: deleteStartMs,
+				},
+			];
+		}
+
+		if (region.startMs < deleteEndMs && region.endMs > deleteEndMs) {
+			return [
+				{
+					...region,
+					startMs: deleteStartMs,
+					endMs: region.endMs - deltaMs,
+				},
+			];
+		}
+
+		return [];
+	});
+}
+
+export function rippleDeleteClip(params: {
+	clipId: string;
+	clipRegions: ClipRegion[];
+	zoomRegions: ZoomRegion[];
+	annotationRegions: AnnotationRegion[];
+	speedRegions: SpeedRegion[];
+	audioRegions: AudioRegion[];
+}): RippleDeleteClipResult | null {
+	const {
+		clipId,
+		clipRegions,
+		zoomRegions,
+		annotationRegions,
+		speedRegions,
+		audioRegions,
+	} = params;
+	const deletedClip = clipRegions.find((clip) => clip.id === clipId);
+	if (!deletedClip) {
+		return null;
+	}
+
+	const deleteStartMs = deletedClip.startMs;
+	const deleteEndMs = deletedClip.endMs;
+	const deletedClipDurationMs = Math.max(0, deleteEndMs - deleteStartMs);
+
+	return {
+		clipRegions: rippleDeleteTimelineRegions(
+			clipRegions.filter((clip) => clip.id !== clipId),
+			deleteStartMs,
+			deleteEndMs,
+		),
+		zoomRegions: rippleDeleteTimelineRegions(zoomRegions, deleteStartMs, deleteEndMs),
+		annotationRegions: rippleDeleteTimelineRegions(
+			annotationRegions,
+			deleteStartMs,
+			deleteEndMs,
+		),
+		speedRegions: rippleDeleteTimelineRegions(speedRegions, deleteStartMs, deleteEndMs),
+		audioRegions: rippleDeleteTimelineRegions(audioRegions, deleteStartMs, deleteEndMs),
+		deletedClipDurationMs,
+	};
+}
+
 export interface CaptionCue {
 	id: string;
 	startMs: number;

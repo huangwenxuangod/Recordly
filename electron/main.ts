@@ -846,6 +846,51 @@ function createEditorWindowWrapper() {
 	return editorWindow;
 }
 
+function returnToRecordingWindow() {
+	if (!mainWindow || mainWindow.isDestroyed() || !isEditorWindow(mainWindow)) {
+		createWindow();
+		return { success: true, canceled: false };
+	}
+
+	const editorWindow = mainWindow;
+	if (isForceClosing || !editorHasUnsavedChanges) {
+		closeEditorWindowBypassingUnsavedPrompt(editorWindow);
+		createWindow();
+		return { success: true, canceled: false };
+	}
+
+	const choice = dialog.showMessageBoxSync(editorWindow, {
+		type: "warning",
+		buttons: ["Save & Return", "Discard & Return", "Cancel"],
+		defaultId: 0,
+		cancelId: 2,
+		title: "Unsaved Changes",
+		message: "You have unsaved changes.",
+		detail: "Do you want to save your project before returning to the recording controls?",
+	});
+
+	if (choice === 0) {
+		editorWindow.webContents.send("request-save-before-close");
+		ipcMain.once("save-before-close-done", (_event, saved: boolean) => {
+			if (!saved) {
+				return;
+			}
+
+			closeEditorWindowBypassingUnsavedPrompt(editorWindow);
+			createWindow();
+		});
+		return { success: true, canceled: false };
+	}
+
+	if (choice === 1) {
+		closeEditorWindowBypassingUnsavedPrompt(editorWindow);
+		createWindow();
+		return { success: true, canceled: false };
+	}
+
+	return { success: true, canceled: true };
+}
+
 function createSourceSelectorWindowWrapper() {
 	sourceSelectorWindow = createSourceSelectorWindow();
 	sourceSelectorWindow.on("closed", () => {
@@ -965,6 +1010,10 @@ app.whenReady().then(async () => {
 	);
 
 	registerExtensionIpcHandlers();
+
+	ipcMain.handle("return-to-recording", () => {
+		return returnToRecordingWindow();
+	});
 
 	if (IS_SMOKE_EXPORT || process.env.RECORDLY_DEV_OPEN_RECORDING_INPUT) {
 		await logSmokeExportGpuDiagnostics();

@@ -78,10 +78,9 @@ export function useTimelineSelection({
 	}, [selectedZoomId, onZoomDelete, onSelectZoom]);
 
 	const deleteSelectedClip = useCallback(() => {
-		if (!selectedClipId || !onClipDelete || !onSelectClip) return;
+		if (!selectedClipId || !onClipDelete) return;
 		onClipDelete(selectedClipId);
-		onSelectClip(null);
-	}, [selectedClipId, onClipDelete, onSelectClip]);
+	}, [selectedClipId, onClipDelete]);
 
 	const deleteSelectedAnnotation = useCallback(() => {
 		if (!selectedAnnotationId || !onAnnotationDelete || !onSelectAnnotation) return;
